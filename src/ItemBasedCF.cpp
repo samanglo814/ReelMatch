@@ -9,8 +9,19 @@ std::string ItemBasedCF::name() const {
     return "Item-Based CF";
 }
 
+// Computes each user's average rating. Adjusted cosine subtracts this
+// from every rating so harsh and generous raters are compared fairly.
+// Time: O(R), where R is the total number of ratings.
 void ItemBasedCF::computeUserMeans() {
-    // TODO
+    for (const auto& [userId, ratings] : data.getUserRatings()) {
+        if (ratings.empty()) continue;
+
+        double sum = 0.0;
+        for (const auto& [movieId, rating] : ratings) {
+            sum += rating;
+        }
+        userMean[userId] = sum / static_cast<double>(ratings.size());
+    }
 }
 
 void ItemBasedCF::computeSimilarities() {
