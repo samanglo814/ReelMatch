@@ -11,7 +11,8 @@ endif()
 
 # Add every new .cpp file to this list
 add_executable(ReelMatch
-    src/main.cpp
+        src/main.cpp
+        src/Dataset.cpp
 )
 
 target_include_directories(ReelMatch PRIVATE include)
