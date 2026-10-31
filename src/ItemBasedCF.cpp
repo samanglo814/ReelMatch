@@ -8,8 +8,9 @@
 namespace {
     struct PairSums {
         double dot = 0.0;  // Sum of centered(i) * centered(j)
-        double normI = 0.0;  // Sum of centered (i)^2 
-        double normJ = 0.0;  // Sum of centered (j)^2 
+        double normI = 0.0;  // Sum of centered(i)^2 
+        double normJ = 0.0;  // Sum of centered(j)^2 
+        int count = 0;  // Number of users who rated both i and j
     };
     long long pairKey(int i, int j) {
         return static_cast<long long>(i) * 100000LL + j;
@@ -40,6 +41,10 @@ void ItemBasedCF::computeUserMeans() {
     }
 }
 
+// Adjusted cosine similarity (Sarwar et al.) between every pair of movies
+// rated by at least one common user, keeping the top k per movie.
+// Time: O(sum over users of n_u^2 + M * m log m), where n_u = ratings by
+// user u, M = number of movies, m = neighbors per movie before trimming.
 void ItemBasedCF::computeSimilarities() {
     std::unordered_map<long long, PairSums> sums;
 
@@ -61,12 +66,14 @@ void ItemBasedCF::computeSimilarities() {
                 s.dot += ci * cj;
                 s.normI += ci * ci;
                 s.normJ += cj * cj;
+                s.count++;
             }
         }
     }
 
     // Convert each pair's sums into a similarity and record it for both movies.
     for (const auto& [key, s] : sums) {
+        if (s.count < 5) continue; // Ignore pairs with too few common raters
         double denom = std::sqrt(s.normI) * std::sqrt(s.normJ);
         if (denom == 0.0) continue;  // no variation, similarity undefined
 
