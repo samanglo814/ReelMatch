@@ -64,6 +64,18 @@ void ItemBasedCF::computeSimilarities() {
         }
     }
 
+    // Convert each pair's sums into a similarity and record it for both movies.
+    for (const auto& [key, s] : sums) {
+        double denom = std::sqrt(s.normI) * std::sqrt(s.normJ);
+        if (denom == 0.0) continue;  // no variation, similarity undefined
+
+        int i = static_cast<int>(key / 100000LL);
+        int j = static_cast<int>(key % 100000LL);
+        double sim = s.dot / denom;
+
+        neighbors[i].push_back({j, sim});
+        neighbors[j].push_back({i, sim});
+    }
 }
 
 double ItemBasedCF::predict(int userId, int movieId) const {
