@@ -3,6 +3,7 @@
 #include <cmath>
 #include <utility>
 #include <vector>
+#include <algorithm>
 
 namespace {
     struct PairSums {
@@ -75,6 +76,18 @@ void ItemBasedCF::computeSimilarities() {
 
         neighbors[i].push_back({j, sim});
         neighbors[j].push_back({i, sim});
+    }
+
+    // Keep only the k most similar movies for each movie, highest first.
+    // Storing every pair would use far more memory and slow down predict().
+    for (auto& [movieId, list] : neighbors) {
+        std::sort(list.begin(), list.end(),
+                  [](const std::pair<int, double>& a, const std::pair<int, double>& b) {
+                      return a.second > b.second;
+                  });
+        if (list.size() > static_cast<size_t>(k)) {
+            list.resize(k);
+        }
     }
 }
 
