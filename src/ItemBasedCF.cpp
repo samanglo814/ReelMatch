@@ -123,7 +123,7 @@ double ItemBasedCF::predict(int userId, int movieId) const {
     double denominator = 0.0;
     for (const auto& [otherMovie, sim] : nIt->second) {
         auto rIt = userRatings.find(otherMovie);
-        if (rIt == userRatings.end()) continue;  // user didn't rate this one
+        if (rIt == userRatings.end() || sim <= 0.0) continue;  // skip unrated or dissimilar
 
         numerator += sim * (rIt->second - mean);
         denominator += std::abs(sim);
