@@ -30,6 +30,7 @@ namespace
         }
     };
 }
+
 UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated) : data(data), k(k), minCoRated(minCoRated) {
     computeUserMeans();
     computeSimilarities();
@@ -56,6 +57,61 @@ void UserBasedCF::computeUserMeans() {
 
 void UserBasedCF::computeSimilarities() {
     // use pearson's coefficient to calculate
+    const auto& userRatings = data.getUserRatings();
+    const auto& movieRatings = data.getMovieRatings();
+
+    for (const auto& [u, uMovies] : userRatings)
+    {
+        // go through u's movies and for every movie walk through everyone else who watched it
+        // only users sharing at least one movie with u get an Accumulator to keep track of their similarity
+        std::unordered_map<int, Accumulator> acc;
+        for (const auto& [movieId, ru] : uMovies)
+        {
+            auto it = movieRatings.find(movieId);
+            if (it == movieRatings.end()) continue;
+            for (const auto& [v, rv] : it->second)
+            {
+                if (v == u) continue; // don't compare user to itself
+                acc[v].add(ru, rv);
+            }
+        }
+
+        // use sums calculated by Accumulator and plug into Pearson correlation formula
+        std::vector<std::pair<int, double>> candidates;
+        candidates.reserve(acc.size()); // preallocate memory without changing vector size or initializing elements
+        for (const auto& [v, a] : acc)
+        {
+            if (a.n < minCoRated) continue;
+
+            const double n = static_cast<double>(a.n);
+            const double num = a.sxy - a.sx * a.sy / n; // covariance numerator
+            const double dx = a.sxx - a.sx * a.sx / n;
+            const double dy = a.syy - a.sy * a.sy / n;
+            if (dx <= kEps || dy <= kEps) continue; // skip pair if essentially zero variance
+
+            double sim = num / std::sqrt(dx * dy);
+
+            // significance weighting: ignore pairs with few shared movies
+            sim *= std::min(a.n, kSignificanceCap) / static_cast<double>(kSignificanceCap);
+
+            //keep only positively correlated neighbors
+            if (sim > 0.0) candidates.emplace_back(v, sim);
+
+        }
+
+        // partial sort for top k, highest similarity first
+        const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), candidates.size());
+        std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end(),
+            [](const auto &a, const auto& b)
+            {
+                if (a.second != b.second) return a.second > b.second;
+                return a.first < b.first; // use userId as tiebreak
+            });
+        candidates.resize(keep);
+        neighbors[u] = std::move(candidates);
+    }
+
+
 
 }
 
