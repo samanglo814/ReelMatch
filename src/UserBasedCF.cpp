@@ -10,7 +10,7 @@ namespace
     const double kMinRating = 1.0;
     const double kMaxRating  = 5.0;
     const int kSignificanceCap = 50; // pair with 50+ shared movies get factor of 1.0 (max pearson coefficient)
-    const int kEps = 1e-9; // help with floating point comparisons
+    const double kEps = 1e-9; // help with floating point comparisons
 
     // run sums for a pair of movies (u,v) to make it easier to computer Pearson later
     // x = u's rating, y = v's rating

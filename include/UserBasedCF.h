@@ -21,7 +21,7 @@ public:
 
 private:
     const Dataset& data;
-    int k;  // neighbors kept per movie
+    int k;  // neighbors kept per user
     int minCoRated; // ignore pairs w fewer shared movies
 
     // userId -> average rating (use in similarity and prediction)
