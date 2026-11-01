@@ -98,9 +98,48 @@ void ItemBasedCF::computeSimilarities() {
     }
 }
 
+// Predicts userId's rating for movieId as a similarity-weighted average of
+// the user's ratings on movieId's most similar movies.
+// Falls back to the user's mean rating when there is no overlap.
+// Time: O(k), where k = neighbors stored per movie.
 double ItemBasedCF::predict(int userId, int movieId) const {
-    (void)userId; (void)movieId;  // silences unused warnings until implemented
-    return 0.0;
+    // 1. Find the user's ratings. If the user doesn't exist, return 3.0.
+    auto userIt = data.getUserRatings().find(userId);
+    if (userIt == data.getUserRatings().end()) {
+        return 3.0;
+    }
+    const auto& userRatings = userIt->second;
+
+    double mean = userMean.at(userId);
+
+    // 2. Find this movie's neighbors. If none, return the user's mean.
+    auto nIt = neighbors.find(movieId);
+    if (nIt == neighbors.end()) {
+        return mean;
+    }
+
+    // 3. Weighted sum over neighbors the user has rated.
+    double numerator = 0.0;
+    double denominator = 0.0;
+    for (const auto& [otherMovie, sim] : nIt->second) {
+        auto rIt = userRatings.find(otherMovie);
+        if (rIt == userRatings.end()) continue;  // user didn't rate this one
+
+        numerator += sim * (rIt->second - mean);
+        denominator += std::abs(sim);
+    }
+
+    // 4. No usable neighbors: fall back to the user's mean.
+    if (denominator == 0) {
+        return mean;
+    }
+
+    double prediction = mean + numerator / denominator;
+
+    // 5. Keep it in the valid rating range.
+    prediction = std::clamp(prediction, 1.0, 5.0);
+
+    return prediction;
 }
 
 std::vector<std::pair<int, double>> ItemBasedCF::recommend(int userId, int k) const {
