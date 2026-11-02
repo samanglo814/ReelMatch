@@ -116,8 +116,28 @@ void UserBasedCF::computeSimilarities() {
 }
 
 double UserBasedCF::predict(int userId, int movieId) const {
-    (void)userId; (void)movieId;  // silences unused warnings until implemented
-    return 0.0;
+    auto meanIt = userMean.find(userId);
+    const double base = (meanIt != userMean.end()) ? meanIt->second : kDefaultRating;
+
+    auto nbIt = neighbors.find(userId);
+    if (nbIt == neighbors.end()) return base;
+
+    const auto& userRatings = data.getUserRatings();
+
+    double num = 0, den = 0;
+    for (const auto& [v, sim] : nbIt->second)
+    {
+        auto vIt = userRatings.find(v);
+        if (vIt == userRatings.end()) continue;
+        auto rIt = vIt->second.find(movieId);
+        if (rIt == vIt->second.end()) continue; // neighbor didn't rate this movie
+
+        num += sim * (rIt->second - userMean.at(v));
+        den += std::abs(sim);
+    }
+
+    if (den < kEps) return base; // no neighbor rated it: fall back to user mean
+    return std::clamp(base + num / den, kMinRating, kMaxRating);
 }
 
 std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) const {
