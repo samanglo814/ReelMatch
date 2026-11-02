@@ -98,12 +98,82 @@ void ItemBasedCF::computeSimilarities() {
     }
 }
 
+// Predicts userId's rating for movieId as the user's mean plus a
+// similarity-weighted average of their deviations on movieId's most
+// similar movies. Only positive similarities are used, and at least
+// 2 matching neighbors are required; otherwise falls back to the user's mean.
+// Time: O(k), where k = neighbors stored per movie.
 double ItemBasedCF::predict(int userId, int movieId) const {
-    (void)userId; (void)movieId;  // silences unused warnings until implemented
-    return 0.0;
+    // 1. Find the user's ratings. If the user doesn't exist, return 3.0.
+    auto userIt = data.getUserRatings().find(userId);
+    if (userIt == data.getUserRatings().end()) {
+        return 3.0;
+    }
+    const auto& userRatings = userIt->second;
+
+    double mean = userMean.at(userId);
+
+    // 2. Find this movie's neighbors. If none, return the user's mean.
+    auto nIt = neighbors.find(movieId);
+    if (nIt == neighbors.end()) {
+        return mean;
+    }
+
+    // 3. Weighted sum of the user's deviations from their mean.
+    double numerator = 0.0;
+    double denominator = 0.0;
+    int used = 0;
+    for (const auto& [otherMovie, sim] : nIt->second) {
+        auto rIt = userRatings.find(otherMovie);
+        if (rIt == userRatings.end() || sim <= 0.0) continue;  // skip unrated or dissimilar
+
+        numerator += sim * (rIt->second - mean);
+        denominator += std::abs(sim);
+        used++;
+    }
+
+    // 4. Too little evidence: fall back to the user's mean.
+    if (used < 2 || denominator == 0.0) {
+        return mean;
+    }
+
+    double prediction = mean + numerator / denominator;
+
+    // 5. Keep it in the valid rating range.
+    return std::clamp(prediction, 1.0, 5.0);
 }
 
+// Returns the top k movies the user hasn't rated, ranked by predicted rating.
+// Time: O(M * k_n + M log k), where M = number of movies and
+// k_n = neighbors stored per movie (each predict() is O(k_n)).
+// Movies with fewer than 20 ratings are skipped as too unreliable.
 std::vector<std::pair<int, double>> ItemBasedCF::recommend(int userId, int k) const {
-    (void)userId; (void)k;
-    return {};
+    std::vector<std::pair<int, double>> results;
+
+    // 1. Get the user's ratings. If the user doesn't exist, return empty.
+    auto userIt = data.getUserRatings().find(userId);
+    if (userIt == data.getUserRatings().end()) {
+        return results;
+    }
+    const auto& userRatings = userIt->second;
+
+    // 2. Predict every movie the user hasn't rated.
+    for (const auto& [movieId, raters] : data.getMovieRatings()) {
+        if (raters.size() < 20) continue;  // skip unpopular movies
+        if (userRatings.find(movieId) != userRatings.end()) {
+            continue;  // user has already rated this movie
+        }
+        results.push_back({movieId, predict(userId, movieId)});
+    }
+
+    // 3. Keep only the top k, highest predicted rating first.
+    if (results.size() > static_cast<size_t>(k)) {
+        std::partial_sort(results.begin(), results.begin() + k, results.end(),
+                          [](const auto& a, const auto& b) { return a.second > b.second; });
+        results.resize(k);
+    } else {
+        std::sort(results.begin(), results.end(),
+                [](const auto& a, const auto& b) { return a.second > b.second; });
+    }
+    return results;
 }
