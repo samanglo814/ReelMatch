@@ -19,3 +19,12 @@ add_executable(ReelMatch
 
 target_include_directories(ReelMatch PRIVATE include)
 target_compile_options(ReelMatch PRIVATE -Wall -Wextra)
+
+# Tests for the item-based recommender
+add_executable(ItemBasedCFTests
+    tests/test_item_cf.cpp
+    src/Dataset.cpp
+    src/ItemBasedCF.cpp
+)
+target_include_directories(ItemBasedCFTests PRIVATE include)
+target_compile_options(ItemBasedCFTests PRIVATE -Wall -Wextra)
