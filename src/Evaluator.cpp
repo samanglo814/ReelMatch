@@ -239,3 +239,84 @@ void Evaluator::run(int userId) const {
 
     cout << "========================================\n";
 }
+
+
+ // Compares the training times of both algorithms as the dataset grows.
+void Evaluator::runScalingBenchmark() const {
+
+    cout << "\n========================================\n";
+    cout << "       DATASET SCALING BENCHMARK\n";
+    cout << "========================================\n";
+
+    // Dataset sizes to test.
+    vector<size_t> datasetSizes = {100000, 250000, 500000, 1000000};
+
+    // Collect all ratings from the original dataset.
+    vector<pair<pair<int, int>, float>> allRatings;
+
+    for (const auto& user : dataset.getUserRatings()) {
+        int userId = user.first;
+
+        for (const auto& rating : user.second) {
+            allRatings.push_back({
+                {userId, rating.first},
+                rating.second
+            });
+        }
+    }
+
+    // Shuffle ratings using a fixed seed for reproducibility.
+    mt19937 generator(42);
+    shuffle(allRatings.begin(), allRatings.end(), generator);
+
+    cout << fixed << setprecision(2);
+
+    cout << "\nRatings       User-Based (ms)    Item-Based (ms)\n";
+    cout << "------------------------------------------------\n";
+
+    // Run the benchmark for each dataset size.
+    for (size_t size : datasetSizes) {
+
+        // Use the available ratings if the dataset is smaller.
+        size_t ratingCount = min(size, allRatings.size());
+
+        // Create a smaller dataset using the first ratingCount ratings.
+        Dataset smallerDataset;
+
+        for (size_t i = 0; i < ratingCount; i++) {
+            int userId = allRatings[i].first.first;
+            int movieId = allRatings[i].first.second;
+            float rating = allRatings[i].second;
+
+            smallerDataset.addRating(userId, movieId, rating);
+        }
+
+        // Measure User-Based CF training time.
+        auto userStart = chrono::high_resolution_clock::now();
+
+        UserBasedCF userBased(smallerDataset);
+
+        auto userEnd = chrono::high_resolution_clock::now();
+
+        double userTime =
+            chrono::duration<double, milli>(userEnd - userStart).count();
+
+        // Measure Item-Based CF training time.
+        auto itemStart = chrono::high_resolution_clock::now();
+
+        ItemBasedCF itemBased(smallerDataset);
+
+        auto itemEnd = chrono::high_resolution_clock::now();
+
+        double itemTime =
+            chrono::duration<double, milli>(itemEnd - itemStart).count();
+
+        // Display results for this dataset size.
+        cout << left << setw(14) << ratingCount
+             << setw(19) << userTime
+             << itemTime << "\n";
+    }
+
+    cout << "========================================\n";
+}
+
