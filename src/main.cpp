@@ -291,15 +291,21 @@ int main() {
 
 
             // 5. Run Performance Benchmark
-            case 5:
+            case 5: {
                 if (selectedUserId == -1) {
                     cout << "Please select a user first.\n";
                 }
                 else {
                     Evaluator evaluator(dataset);
+
+                    // Evaluate recommendation accuracy and training time.
                     evaluator.run(selectedUserId);
+
+                    // Compare training times using different dataset sizes.
+                    evaluator.runScalingBenchmark();
                 }
                 break;
+            }
 
 
             // 6. Exit

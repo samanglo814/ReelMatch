@@ -14,6 +14,9 @@ public:
     // Runs the evaluation and compares both recommendation algorithms
     void run(int userId) const;
 
+    // Compares the training times of both algorithms using different dataset sizes
+    void runScalingBenchmark() const;
+
 private:
     const Dataset& dataset;
 
