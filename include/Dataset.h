@@ -16,6 +16,10 @@ public:
     // "rate movies yourself" mode and the train/test split.
     void addRating(int userId, int movieId, float rating);
 
+    // Removes a single rating from both the user and movie maps.
+    // Used by the train/test split to hide ratings from the recommendation algorithms.
+    void removeRating(int userId, int movieId);
+
     // userId -> (movieId -> rating). Used by User-Based CF.
     const std::unordered_map<int, RatingMap>& getUserRatings() const { return userRatings; }
 
