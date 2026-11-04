@@ -57,3 +57,31 @@ static void testPredictBasic() {
     checkNear(cf.predict(A, 5), 5.0, "predictBasic: predict(A, m5)");
 }
 
+static void testPredictFallbacks() {
+    Dataset d = makeDataset(mainFixture());
+    UserBasedCF cf(d, 50, 3);
+
+    checkNear(cf.predict(A, 99), 4.0, "fallbacks: no neighbor rated it -> user's mean");
+    checkNear(cf.predict(999, 1), 3.0, "fallbacks: unknown user -> default rating");
+}
+
+static void testPredictClampsHigh() {
+    // B = A - 1 on m1..m3, B mean = 3.5, m4 = 5 -> raw 4 + 1.5 = 5.5
+    Dataset d = makeDataset({
+        {A, 1, 5}, {A, 2, 3}, {A, 3, 4},
+        {B, 1, 4}, {B, 2, 2}, {B, 3, 3}, {B, 4, 5},
+    });
+    UserBasedCF cf(d, 50, 3);
+    checkNear(cf.predict(A, 4), 5.0, "clampsHigh: predict(A, m4)");
+}
+
+static void testPredictClampsLow() {
+    // A = (2,1,2), B = A + 1, B mean = 2.25, m4 = 1 -> raw 5/3 + (1 - 2.25) < 1
+    Dataset d = makeDataset({
+        {A, 1, 2}, {A, 2, 1}, {A, 3, 2},
+        {B, 1, 3}, {B, 2, 2}, {B, 3, 3}, {B, 4, 1},
+    });
+    UserBasedCF cf(d, 50, 3);
+    checkNear(cf.predict(A, 4), 1.0, "clampsLow: predict(A, m4)");
+}
+
