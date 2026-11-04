@@ -14,7 +14,8 @@ add_executable(ReelMatch
     src/main.cpp
     src/ItemBasedCF.cpp
     src/Dataset.cpp
-        src/UserBasedCF.cpp
+    src/UserBasedCF.cpp
+    src/Evaluator.cpp
 )
 
 target_include_directories(ReelMatch PRIVATE include)

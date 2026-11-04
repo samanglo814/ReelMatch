@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <memory>
 
+#include "Evaluator.h"
 #include "Dataset.h"
 #include "UserBasedCF.h"
 #include "ItemBasedCF.h"
@@ -291,7 +292,13 @@ int main() {
 
             // 5. Run Performance Benchmark
             case 5:
-                cout << "Performance benchmark is not available yet.\n";
+                if (selectedUserId == -1) {
+                    cout << "Please select a user first.\n";
+                }
+                else {
+                    Evaluator evaluator(dataset);
+                    evaluator.run(selectedUserId);
+                }
                 break;
 
 
