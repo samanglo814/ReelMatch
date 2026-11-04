@@ -11,7 +11,6 @@ namespace
     const double kMaxRating  = 5.0;
     const int kSignificanceCap = 50; // pair with 50+ shared movies get factor of 1.0 (max pearson coefficient)
     const double kEps = 1e-9; // help with floating point comparisons
-    const double kRankShrinkage = 1.0; // recommend() ranking: larger = favor movies with more neighbor support
 
     // run sums for a pair of movies (u,v) to make it easier to computer Pearson later
     // x = u's rating, y = v's rating
@@ -32,7 +31,7 @@ namespace
     };
 }
 
-UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated, int minMovieRated, int minNeighborsUsed) : data(data), k(k), minCoRated(minCoRated), minMoviesRated(minMoviesRated), minNeighborsUsed(minNeighborsUsed) {
+UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated) : data(data), k(k), minCoRated(minCoRated) {
     computeUserMeans();
     computeSimilarities();
 }
@@ -118,7 +117,7 @@ void UserBasedCF::computeSimilarities() {
 
 double UserBasedCF::predict(int userId, int movieId) const {
     auto meanIt = userMean.find(userId);
-    const double base = (meanIt != userMean.end()) ? meanIt->second : kDefaultRating; // fallback if user has no data
+    const double base = (meanIt != userMean.end()) ? meanIt->second : kDefaultRating;
 
     auto nbIt = neighbors.find(userId);
     if (nbIt == neighbors.end()) return base;
@@ -126,7 +125,6 @@ double UserBasedCF::predict(int userId, int movieId) const {
     const auto& userRatings = data.getUserRatings();
 
     double num = 0, den = 0;
-    int used = 0; // how many neighbors actually rated this movie
     for (const auto& [v, sim] : nbIt->second)
     {
         auto vIt = userRatings.find(v);
@@ -136,10 +134,9 @@ double UserBasedCF::predict(int userId, int movieId) const {
 
         num += sim * (rIt->second - userMean.at(v));
         den += std::abs(sim);
-        ++used;
     }
 
-    if (used < minNeighborsUsed || den < kEps) return base; // no neighbor rated it or too little evidence (only one neighbor): fall back to user mean
+    if (den < kEps) return base; // no neighbor rated it: fall back to user mean
     return std::clamp(base + num / den, kMinRating, kMaxRating);
 }
 
@@ -152,9 +149,8 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
     const auto& seen = userRatings.at(userId);
 
     // do one pass over neighbors, accumulating num and denom of prediction formula for every movie user hasn't rated
-    struct Score {double num = 0, den = 0; int used = 0;};
+    struct Score {double num = 0, den = 0;};
     std::unordered_map<int, Score> scores;
-    const auto& movieRatings = data.getMovieRatings();
 
     for (const auto& [v, sim] : nbIt->second)
     {
@@ -164,41 +160,28 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
         for (const auto& [movieId, r] : vIt->second)
         {
             if (seen.count(movieId)) continue;
-
-            //skip obscure movies with too few ratings
-            auto mIt = movieRatings.find(movieId);
-            if (mIt == movieRatings.end() || static_cast<int>(mIt->second.size()) < minMoviesRated) continue;
-
             Score& s = scores[movieId];
             s.num += sim * (r - vMean);
             s.den += std::abs(sim);
-            ++s.used;
         }
     }
 
     const double base = meanIt->second;
-
-    // rank by shrunk, unclamped score so movies ranked by many neighbors beat movies backed by single neighbor
-    // clamping no longer creates ties full of 5.0
-    // score reported is still the same clamped value that predict() returns though
-    struct Candidate { int movieId; double rankScore; double predicted;};
-    std::vector<Candidate> candidates;
-    candidates.reserve(scores.size());
+    std::vector<std::pair<int, double>> results;
+    results.reserve(scores.size());
     for (const auto& [movieId, s] : scores)
     {
-        if (s.used < minNeighborsUsed || s.den < kEps) continue;
-        candidates.push_back({movieId, base + s.num / (s.den + kRankShrinkage), std::clamp(base + s.num / s.den, kMinRating, kMaxRating)});
+        if (s.den < kEps) continue;
+        results.emplace_back(movieId, std::clamp(base + s.num / s.den, kMinRating, kMaxRating));
     }
 
-    const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), candidates.size());
-    std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end(),
+    const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), results.size());
+    std::partial_sort(results.begin(), results.begin() + keep, results.end(),
                       [](const auto& a, const auto& b) {
-                          if (a.rankScore != b.rankScore) return a.rankScore > b.rankScore;
-                          return a.movieId < b.movieId;
+                          if (a.second != b.second) return a.second > b.second;
+                          return a.first < b.first;
                       });
 
-    std::vector<std::pair<int,double>> results;
-    results.reserve(keep);
-    for (size_t i = 0; i < keep; ++i) results.emplace_back(candidates[i].movieId, candidates[i].predicted);
+    results.resize(keep);
     return results;
 }
