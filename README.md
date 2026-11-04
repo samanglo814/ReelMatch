@@ -15,6 +15,7 @@ The project evaluates both algorithms based on recommendation accuracy and perfo
 - Evaluate recommendation accuracy using RMSE and Precision@10.
 - Benchmark algorithm training times.
 - Interactive, menu-driven interface.
+- Compare algorithm scalability using datasets of 100K, 250K, 500K, and 1M ratings.
 
 ## Recommendation Algorithms
 
@@ -96,7 +97,7 @@ After launching the application, use the menu to access the following options:
 2. **View User's Highly Rated Movies** – Display movies the selected user rated highly.
 3. **Generate Recommendations** – Generate personalized movie recommendations.
 4. **Compare Recommendation Algorithms** – Compare the top recommendations from both algorithms.
-5. **Run Performance Benchmark** – Evaluate both algorithms using the test dataset.
+5. **Run Performance Benchmark** – Evaluate RMSE, Precision@10, training time, and dataset scaling for both algorithms.
 6. **Exit** – Close the application.
 
 ## Evaluation
@@ -108,6 +109,19 @@ ReelMatch compares the two recommendation algorithms using the following metrics
 - **Training Time:** Measures how long each algorithm takes to build its recommendation model.
 
 The evaluation uses an 80/20 training and testing split. Ratings are hidden from the training dataset during testing, and movies rated 4 or higher are considered relevant for Precision@10.
+
+## Dataset Scaling Benchmark
+
+To evaluate scalability, ReelMatch compares the training times of User-Based and Item-Based Collaborative Filtering using four dataset sizes: 100K, 250K, 500K, and 1M ratings. Ratings are shuffled using a fixed random seed (42) for reproducibility.
+
+| Ratings | User-Based CF (ms) | Item-Based CF (ms) |
+|---|---:|---:|
+| 100,000 | 3,148.09 | 1,687.39 |
+| 250,000 | 15,922.66 | 9,426.81 |
+| 500,000 | 55,248.36 | 20,459.74 |
+| 1,000,000 | 146,185.72 | 72,362.68 |
+
+Item-Based CF trained faster at every dataset size, achieving approximately a 2.02× speedup over User-Based CF at 1M ratings. Results are from a single benchmark run, and training times may vary depending on hardware and build configuration.
 
 ## Technologies Used
 
