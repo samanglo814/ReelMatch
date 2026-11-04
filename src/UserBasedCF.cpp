@@ -56,6 +56,7 @@ void UserBasedCF::computeUserMeans() {
     }
 }
 
+// time complexity: O(Σₘ nₘ²), where nₘ is number of users who have rated movie m
 void UserBasedCF::computeSimilarities() {
     // use pearson's coefficient to calculate
     const auto& userRatings = data.getUserRatings();
