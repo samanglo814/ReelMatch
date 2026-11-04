@@ -129,3 +129,50 @@ static void testNeighborCountLimit() {
     checkNear(cf.predict(A, 4), 3.0, "neighborCountLimit: predict(A, m4)");
     checkNear(cf.predict(A, 5), 5.0, "neighborCountLimit: predict(A, m5)");
 }
+
+static void testRecommend() {
+    Dataset d = makeDataset(mainFixture());
+    UserBasedCF cf(d, 50, 3);
+
+    auto recs = cf.recommend(A, 10);
+    check(recs.size() == 2, "recommend: only m4 and m5 are unseen and rated by a neighbor");
+    if (recs.size() == 2) {
+        check(recs[0].first == 5, "recommend: first result is m5 (sorted descending)");
+        checkNear(recs[0].second, 5.0, "recommend: score of m5");
+        check(recs[1].first == 4, "recommend: second result is m4");
+        checkNear(recs[1].second, 3.0, "recommend: score of m4");
+    }
+
+    for (const auto& rec : recs) {
+        int movieId = rec.first;
+        double score = rec.second;
+        check(movieId != 1 && movieId != 2 && movieId != 3,
+              "recommend: never recommends an already-rated movie");
+        checkNear(score, cf.predict(A, movieId),
+                  "recommend: score agrees with predict() for m" + std::to_string(movieId));
+    }
+
+    auto top1 = cf.recommend(A, 1);
+    check(top1.size() == 1, "recommend: k=1 returns one result");
+    if (!top1.empty()) check(top1[0].first == 5, "recommend: k=1 returns m5");
+
+    check(cf.recommend(999, 5).empty(), "recommend: unknown user returns empty list");
+}
+
+int main() {
+    testPredictBasic();
+    testPredictFallbacks();
+    testPredictClampsHigh();
+    testPredictClampsLow();
+    testExcludedNeighbors();
+    testMinCoRated();
+    testRecommend();
+    testNeighborCountLimit();
+
+    if (failures == 0) {
+        std::cout << "All UserBasedCF tests passed\n";
+        return 0;
+    }
+    std::cerr << failures << " check(s) failed\n";
+    return 1;
+}
