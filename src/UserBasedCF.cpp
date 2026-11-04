@@ -141,6 +141,47 @@ double UserBasedCF::predict(int userId, int movieId) const {
 }
 
 std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) const {
-    (void)userId; (void)k;
-    return {};
+    auto meanIt = userMean.find(userId);
+    auto nbIt = neighbors.find(userId);
+    if (meanIt == userMean.end() || nbIt == neighbors.end()) return {};
+
+    const auto& userRatings = data.getUserRatings();
+    const auto& seen = userRatings.at(userId);
+
+    // do one pass over neighbors, accumulating num and denom of prediction formula for every movie user hasn't rated
+    struct Score {double num = 0, den = 0;};
+    std::unordered_map<int, Score> scores;
+
+    for (const auto& [v, sim] : nbIt->second)
+    {
+        auto vIt = userRatings.find(v);
+        if (vIt == userRatings.end()) continue;
+        const double vMean = userMean.at(v);
+        for (const auto& [movieId, r] : vIt->second)
+        {
+            if (seen.count(movieId)) continue;
+            Score& s = scores[movieId];
+            s.num += sim * (r - vMean);
+            s.den += std::abs(sim);
+        }
+    }
+
+    const double base = meanIt->second;
+    std::vector<std::pair<int, double>> results;
+    results.reserve(scores.size());
+    for (const auto& [movieId, s] : scores)
+    {
+        if (s.den < kEps) continue;
+        results.emplace_back(movieId, std::clamp(base + s.num / s.den, kMinRating, kMaxRating));
+    }
+
+    const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), results.size());
+    std::partial_sort(results.begin(), results.begin() + keep, results.end(),
+                      [](const auto& a, const auto& b) {
+                          if (a.second != b.second) return a.second > b.second;
+                          return a.first < b.first;
+                      });
+
+    results.resize(keep);
+    return results;
 }
