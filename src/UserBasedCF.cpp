@@ -32,7 +32,7 @@ namespace
     };
 }
 
-UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated, int minMovieRated, int minNeighborsUsed) : data(data), k(k), minCoRated(minCoRated), minMoviesRated(minMoviesRated), minNeighborsUsed(minNeighborsUsed) {
+UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated, int minMoviesRated, int minNeighborsUsed) : data(data), k(k), minCoRated(minCoRated), minMoviesRated(minMoviesRated), minNeighborsUsed(minNeighborsUsed) {
     computeUserMeans();
     computeSimilarities();
 }
