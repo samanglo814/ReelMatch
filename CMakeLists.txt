@@ -19,3 +19,12 @@ add_executable(ReelMatch
 
 target_include_directories(ReelMatch PRIVATE include)
 target_compile_options(ReelMatch PRIVATE -Wall -Wextra)
+
+add_executable(UserBasedTesting
+        tests/userBasedTests.cpp
+        src/Dataset.cpp
+        src/UserBasedCF.cpp
+)
+
+target_include_directories(UserBasedTesting PRIVATE include)
+target_compile_options(UserBasedTesting PRIVATE -Wall -Wextra)
