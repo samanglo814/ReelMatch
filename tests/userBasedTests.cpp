@@ -37,7 +37,7 @@ static Dataset makeDataset(const std::vector<R>& rows) {
 }
 
 // User ids
-static const int A = 1, B = 2, C = 3, D = 4;
+static const int A = 1, B = 2, C = 3, D = 4, E = 5;
 
 // Main test - A rates m1..m3 = 5,3,4 (mean 4).
 // B = A - 1 on those movies (Pearson +1 with A), plus m4 = 2 and m5 = 4, so B's mean is exactly 3
@@ -67,8 +67,8 @@ static void testPredictFallbacks() {
     checkNear(cf.predict(999, 1), 3.0, "fallbacks: unknown user -> default rating");
 }
 
-static void testPredictClampsHigh() {
-    // B = A - 1 on m1..m3, B mean = 3.5, m4 = 5 -> raw 4 + 1.5 = 5.5
+static void testTopRatingMapsToFive() {
+    // B = A - 1 on m1..m3, B mean = 3.5. B gave m4 its top rating (5), which maps to exactly 5.0 on A's scale
     Dataset d = makeDataset({
         {A, 1, 5}, {A, 2, 3}, {A, 3, 4},
         {B, 1, 4}, {B, 2, 2}, {B, 3, 3}, {B, 4, 5},
@@ -77,8 +77,8 @@ static void testPredictClampsHigh() {
     checkNear(cf.predict(A, 4), 5.0, "clampsHigh: predict(A, m4)");
 }
 
-static void testPredictClampsLow() {
-    // A = (2,1,2), B = A + 1, B mean = 2.25, m4 = 1 -> raw 5/3 + (1 - 2.25) < 1
+static void testBottomRatingMapsToOne() {
+    // A = (2,1,2), B = A + 1, B mean = 2.25. B gave m4 its lowest rating (1), which maps to exactly 1.0 on A's scale.
     Dataset d = makeDataset({
         {A, 1, 2}, {A, 2, 1}, {A, 3, 2},
         {B, 1, 3}, {B, 2, 2}, {B, 3, 3}, {B, 4, 1},
@@ -120,11 +120,11 @@ static void testMinCoRated() {
 
 static void testNeighborCountLimit() {
     // k = 1 keeps only the most similar neighbor.
-    // B = A - 1 (r = +1). User 5 is positively correlated with A but less perfectly (r ~ 0.87).
+    // B = A - 1 (r = +1). User E is positively correlated with A but less perfectly (r ~ 0.87).
     Dataset d = makeDataset({
         {A, 1, 5}, {A, 2, 3}, {A, 3, 4},
         {B, 1, 4}, {B, 2, 2}, {B, 3, 3}, {B, 4, 2}, {B, 5, 4},
-        {5, 1, 5}, {5, 2, 4}, {5, 3, 5}, {5, 4, 1}, {5, 5, 1},
+        {E, 1, 5}, {E, 2, 4}, {E, 3, 5}, {E, 4, 1}, {E, 5, 1},
     });
     UserBasedCF cf(d, 1, 3, 1, 1);
 
@@ -169,29 +169,30 @@ static std::vector<R> thinEvidenceFixture() {
     return {
         {A, 1, 4}, {A, 2, 2}, {A, 3, 3},
         {B, 1, 3}, {B, 2, 1}, {B, 3, 2}, {B, 4, 5}, {B, 5, 2},
-        {5, 1, 5}, {5, 2, 3}, {5, 3, 4}, {5, 5, 4},
+        {E, 1, 5}, {E, 2, 3}, {E, 3, 4}, {E, 5, 4},
     };
 }
 
 static void testMinNeighborsUsed() {
     Dataset d = makeDataset(thinEvidenceFixture());
 
-    // Threshold 1: m4 is backed by B alone -> 3 + (5 - 2.6) = 5.4, clamped to 5.0 (the bug)
+    // Threshold 1: m4 is backed by B alone. B gave it a 5, which maps to 5.0 on A's scale.
     UserBasedCF loose(d, 50, 3, 1, 1);
-    checkNear(loose.predict(A, 4), 5.0, "minNeighborsUsed=1: single-neighbor movie saturates at 5.0");
+    checkNear(loose.predict(A, 4), 5.0, "minNeighborsUsed=1: single-neighbor movie 5-star movie -> 5.0");
 
     // Threshold 2: m4 falls back to A's mean; m5 (two neighbors) is predicted normally
-    // m5: 3 + ((2 - 2.6) + (4 - 4.0)) / 2 = 2.7
+    // B gave m5 a 2 (mean 2.6): 3 - 0.6 * (3-1)/(2.6-1) = 2.25.  E gave 4 (= E's mean 4.0): 3.0.
+    // Equal similarities, so the average is 2.625.
     UserBasedCF strict(d, 50, 3, 1, 2);
     checkNear(strict.predict(A, 4), 3.0, "minNeighborsUsed=2: single-neighbor movie -> user's mean");
-    checkNear(strict.predict(A, 5), 2.7, "minNeighborsUsed=2: two-neighbor movie predicted normally");
+    checkNear(strict.predict(A, 5), 2.625, "minNeighborsUsed=2: two-neighbor movie predicted normally");
 
     // recommend() applies the same rule, so m4 is not recommended at all.
     auto recs = strict.recommend(A, 10);
     check(recs.size() == 1, "minNeighborsUsed=2: recommend returns only the well-supported movie");
     if (!recs.empty()) {
         check(recs[0].first == 5, "minNeighborsUsed=2: recommended movie is m5");
-        checkNear(recs[0].second, 2.7, "minNeighborsUsed=2: recommended score matches predict()");
+        checkNear(recs[0].second, 2.625, "minNeighborsUsed=2: recommended score matches predict()");
     }
 }
 
@@ -223,7 +224,7 @@ static void testGenerousUserNotSaturated() {
     checkNear(p, 4.5 + 1.2 * 0.5 / 2.2, "generousUser: predict(A, m4) stays below 5");
     check(p < 5.0, "generousUser: not saturated at 5.0");
 
-    // Bounded for every possible neighbor rating 1..5.
+    // Bounded for every possible neighbor rating 1..5. (predict() also clamps so this is only a sanity check)
     for (int rating = 1; rating <= 5; ++rating) {
         Dataset e = makeDataset({
             {A, 1, 5}, {A, 2, 4}, {A, 3, 5}, {A, 5, 4},
@@ -242,7 +243,7 @@ static void testRecommendSortedByDisplayedScore() {
     std::vector<R> rows = {
         {A, 1, 4}, {A, 2, 2}, {A, 3, 3},
         {B, 1, 3}, {B, 2, 1}, {B, 3, 2}, {B, 4, 5}, {B, 5, 1}, {B, 6, 3}, {B, 7, 4}, {B, 8, 2},
-        {5, 1, 5}, {5, 2, 3}, {5, 3, 4}, {5, 4, 4}, {5, 5, 2}, {5, 6, 5}, {5, 7, 3}, {5, 8, 4},
+        {E, 1, 5}, {E, 2, 3}, {E, 3, 4}, {E, 4, 4}, {E, 5, 2}, {E, 6, 5}, {E, 7, 3}, {E, 8, 4},
     };
     Dataset d = makeDataset(rows);
     UserBasedCF cf(d, 50, 3, 2, 2);
@@ -259,8 +260,8 @@ static void testRecommendSortedByDisplayedScore() {
 int main() {
     testPredictBasic();
     testPredictFallbacks();
-    testPredictClampsHigh();
-    testPredictClampsLow();
+    testTopRatingMapsToFive();
+    testBottomRatingMapsToOne();
     testExcludedNeighbors();
     testMinCoRated();
     testRecommend();
