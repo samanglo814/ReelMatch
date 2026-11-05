@@ -12,7 +12,7 @@ public:
     Evaluator(const Dataset& dataset);
 
     // Runs the evaluation and compares both recommendation algorithms
-    void run(int userId) const;
+    void run() const;
 
     // Compares the training times of both algorithms using different dataset sizes
     void runScalingBenchmark() const;

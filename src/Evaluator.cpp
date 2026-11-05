@@ -78,7 +78,7 @@ double Evaluator::calculatePrecisionAt10(
 
 
 // Runs the evaluation and compares both recommendation algorithms.
-void Evaluator::run(int userId) const {
+void Evaluator::run() const {
 
     cout << "\n========================================\n";
     cout << "       RECOMMENDATION EVALUATION\n";
