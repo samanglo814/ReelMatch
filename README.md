@@ -6,6 +6,8 @@ ReelMatch is a C++ movie recommendation system that uses the MovieLens 1M datase
 
 The project evaluates both algorithms based on recommendation accuracy and performance.
 
+**Team (Group 29):** Samantha Anglo (@samanglo814), Josephine Lim (@josephinlim-cmyk), Daniel Su Liu (@danichaa26)
+
 ## Features
 
 - Load and process the MovieLens 1M dataset.
@@ -87,7 +89,23 @@ Build the application:
 cmake --build build
 ```
 
-Run the generated executable from the build directory. Its exact location depends on your CMake generator and operating system.
+Run the program from the project root folder, so it can find `data/ml-1m/`:
+
+```bash
+./build/ReelMatch
+```
+
+Running it from inside `build/` will fail to load the dataset.
+
+## Running Tests
+
+After building, run the item-based tests from the project root:
+
+```bash
+./build/ItemBasedCFTests
+```
+
+These check item-based CF against a small dataset with hand-calculated answers, plus sanity checks on the full ml-1m data.
 
 ## Using ReelMatch
 
@@ -116,12 +134,12 @@ To evaluate scalability, ReelMatch compares the training times of User-Based and
 
 | Ratings | User-Based CF (ms) | Item-Based CF (ms) |
 |---|---:|---:|
-| 100,000 | 3,148.09 | 1,687.39 |
-| 250,000 | 15,922.66 | 9,426.81 |
-| 500,000 | 55,248.36 | 20,459.74 |
-| 1,000,000 | 146,185.72 | 72,362.68 |
+| 100,000 | 481.98 | 363.39 |
+| 250,000 | 2,035.15 | 1,234.04 |
+| 500,000 | 10,075.20 | 3,176.27 |
+| 1,000,000 | 65,952.95 | 8,598.31 |
 
-Item-Based CF trained faster at every dataset size, achieving approximately a 2.02× speedup over User-Based CF at 1M ratings. Results are from a single benchmark run, and training times may vary depending on hardware and build configuration.
+Item-Based CF trained faster at every dataset size, about 7.7× faster than User-Based CF at 1M ratings. Results are from a single Release-build run; training times vary by hardware.
 
 ## Technologies Used
 
@@ -147,6 +165,8 @@ ReelMatch/
 │   ├── UserBasedCF.cpp
 │   ├── ItemBasedCF.cpp
 │   └── Evaluator.cpp
+├── tests/
+│   └── test_item_cf.cpp
 ├── data/
 │   └── ml-1m/
 ├── CMakeLists.txt
