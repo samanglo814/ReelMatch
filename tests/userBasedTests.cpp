@@ -50,7 +50,7 @@ static std::vector<R> mainFixture() {
 
 static void testPredictBasic() {
     Dataset d = makeDataset(mainFixture());
-    UserBasedCF cf(d, /*k=*/50, /*minCoRated=*/3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
 
     // mean(A)=4, mean(B)=3. m4: 4 + (2-3) = 3.   m5: 4 + (4-3) = 5.
     checkNear(cf.predict(A, 4), 3.0, "predictBasic: predict(A, m4)");
@@ -59,7 +59,7 @@ static void testPredictBasic() {
 
 static void testPredictFallbacks() {
     Dataset d = makeDataset(mainFixture());
-    UserBasedCF cf(d, 50, 3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
 
     checkNear(cf.predict(A, 99), 4.0, "fallbacks: no neighbor rated it -> user's mean");
     checkNear(cf.predict(999, 1), 3.0, "fallbacks: unknown user -> default rating");
@@ -71,7 +71,7 @@ static void testPredictClampsHigh() {
         {A, 1, 5}, {A, 2, 3}, {A, 3, 4},
         {B, 1, 4}, {B, 2, 2}, {B, 3, 3}, {B, 4, 5},
     });
-    UserBasedCF cf(d, 50, 3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
     checkNear(cf.predict(A, 4), 5.0, "clampsHigh: predict(A, m4)");
 }
 
@@ -81,7 +81,7 @@ static void testPredictClampsLow() {
         {A, 1, 2}, {A, 2, 1}, {A, 3, 2},
         {B, 1, 3}, {B, 2, 2}, {B, 3, 3}, {B, 4, 1},
     });
-    UserBasedCF cf(d, 50, 3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
     checkNear(cf.predict(A, 4), 1.0, "clampsLow: predict(A, m4)");
 }
 
@@ -93,7 +93,7 @@ static void testExcludedNeighbors() {
         {C, 1, 3}, {C, 2, 3}, {C, 3, 3}, {C, 4, 5},
         {D, 1, 1}, {D, 2, 3}, {D, 3, 2}, {D, 4, 5},
     });
-    UserBasedCF cf(d, 50, 3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
 
     checkNear(cf.predict(A, 4), 4.0, "excludedNeighbors: falls back to A's mean");
     check(cf.recommend(A, 5).empty(), "excludedNeighbors: recommend(A) is empty");
@@ -107,10 +107,10 @@ static void testMinCoRated() {
     };
     Dataset d = makeDataset(rows);
 
-    UserBasedCF strict(d, 50, /*minCoRated=*/3);
+    UserBasedCF strict(d, 50, 3, 1, 1);
     checkNear(strict.predict(A, 4), 4.0, "minCoRated: pair dropped at threshold 3 -> mean(A)");
 
-    UserBasedCF loose(d, 50, /*minCoRated=*/2);
+    UserBasedCF loose(d, 50, 2, 1, 1);
     // Pearson over 2 shared movies is +1. mean(B) = 8/3, so 4 + (2 - 8/3) = 10/3.
     checkNear(loose.predict(A, 4), 10.0 / 3.0, "minCoRated: pair kept at threshold 2");
 }
@@ -123,7 +123,7 @@ static void testNeighborCountLimit() {
         {B, 1, 4}, {B, 2, 2}, {B, 3, 3}, {B, 4, 2}, {B, 5, 4},
         {5, 1, 5}, {5, 2, 4}, {5, 3, 5}, {5, 4, 1}, {5, 5, 1},
     });
-    UserBasedCF cf(d, /*k=*/1, 3);
+    UserBasedCF cf(d, 1, 3, 1, 1);
 
     // Only B should count, so the answer matches the single-neighbor fixture.
     checkNear(cf.predict(A, 4), 3.0, "neighborCountLimit: predict(A, m4)");
@@ -132,7 +132,7 @@ static void testNeighborCountLimit() {
 
 static void testRecommend() {
     Dataset d = makeDataset(mainFixture());
-    UserBasedCF cf(d, 50, 3);
+    UserBasedCF cf(d, 50, 3, 1, 1);
 
     auto recs = cf.recommend(A, 10);
     check(recs.size() == 2, "recommend: only m4 and m5 are unseen and rated by a neighbor");
@@ -159,6 +159,52 @@ static void testRecommend() {
     check(cf.recommend(999, 5).empty(), "recommend: unknown user returns empty list");
 }
 
+// A: m1..m3 = 4,2,3 (mean 3). B = A - 1 and E = A + 1 on those, so both are Pearson +1 neighbors.
+// m4 is rated only by B (5). m5 is rated by both B (2) and E (4).
+// mean(B) = (3+1+2+5+2)/5 = 2.6, mean(E) = (5+3+4+4)/4 = 4.0.
+static std::vector<R> thinEvidenceFixture() {
+    return {
+        {A, 1, 4}, {A, 2, 2}, {A, 3, 3},
+        {B, 1, 3}, {B, 2, 1}, {B, 3, 2}, {B, 4, 5}, {B, 5, 2},
+        {5, 1, 5}, {5, 2, 3}, {5, 3, 4}, {5, 5, 4},
+    };
+}
+
+static void testMinNeighborsUsed() {
+    Dataset d = makeDataset(thinEvidenceFixture());
+
+    // Threshold 1: m4 is backed by B alone -> 3 + (5 - 2.6) = 5.4, clamped to 5.0 (the bug)
+    UserBasedCF loose(d, 50, 3, 1, 1);
+    checkNear(loose.predict(A, 4), 5.0, "minNeighborsUsed=1: single-neighbor movie saturates at 5.0");
+
+    // Threshold 2: m4 falls back to A's mean; m5 (two neighbors) is predicted normally
+    // m5: 3 + ((2 - 2.6) + (4 - 4.0)) / 2 = 2.7
+    UserBasedCF strict(d, 50, 3, 1, 2);
+    checkNear(strict.predict(A, 4), 3.0, "minNeighborsUsed=2: single-neighbor movie -> user's mean");
+    checkNear(strict.predict(A, 5), 2.7, "minNeighborsUsed=2: two-neighbor movie predicted normally");
+
+    // recommend() applies the same rule, so m4 is not recommended at all.
+    auto recs = strict.recommend(A, 10);
+    check(recs.size() == 1, "minNeighborsUsed=2: recommend returns only the well-supported movie");
+    if (!recs.empty()) {
+        check(recs[0].first == 5, "minNeighborsUsed=2: recommended movie is m5");
+        checkNear(recs[0].second, 2.7, "minNeighborsUsed=2: recommended score matches predict()");
+    }
+}
+
+static void testMinMovieRatings() {
+    Dataset d = makeDataset(thinEvidenceFixture());
+
+    // m4 has 1 rating overall, m5 has 2. With a 2-rating floor, only m5 can be recommended
+    UserBasedCF cf(d, 50, 3, 2, 1);
+    auto recs = cf.recommend(A, 10);
+    check(recs.size() == 1, "minMovieRatings=2: obscure movie is skipped");
+    if (!recs.empty()) check(recs[0].first == 5, "minMovieRatings=2: m5 is the only recommendation");
+
+    // predict() is not affected by the movie-popularity floor
+    checkNear(cf.predict(A, 4), 5.0, "minMovieRatings=2: predict() unaffected");
+}
+
 int main() {
     testPredictBasic();
     testPredictFallbacks();
@@ -168,6 +214,8 @@ int main() {
     testMinCoRated();
     testRecommend();
     testNeighborCountLimit();
+    testMinNeighborsUsed();
+    testMinMovieRatings();
 
     if (failures == 0) {
         std::cout << "All UserBasedCF tests passed\n";
