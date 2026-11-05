@@ -13,7 +13,7 @@
 // Select top k most similar users (neighbors) and predict missing ratings based on neighbors' ratings
 class UserBasedCF : public Recommender {
 public:
-    UserBasedCF(const Dataset& data, int k = 50, int minCoRated = 5, int minMoviesRated = 20, int minNeighborsUsed = 2);
+    UserBasedCF(const Dataset& data, int k = 50, int minCoRated = 5, int minMoviesRated = 20, int minNeighborsUsed = 5);
 
     double predict(int userId, int movieId) const override;
     std::vector<std::pair<int, double>> recommend(int userId, int k) const override;

@@ -11,7 +11,6 @@ namespace
     const double kMaxRating  = 5.0;
     const int kSignificanceCap = 50; // pair with 50+ shared movies get factor of 1.0 (max pearson coefficient)
     const double kEps = 1e-9; // help with floating point comparisons
-    const double kRankShrinkage = 1.0; // recommend() ranking: larger = favor movies with more neighbor support
 
     // run sums for a pair of movies (u,v) to make it easier to computer Pearson later
     // x = u's rating, y = v's rating
@@ -192,27 +191,21 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
     }
 
 
-    // rank by shrunk, unclamped score so movies ranked by many neighbors beat movies backed by single neighbor
-    // clamping no longer creates ties full of 5.0
-    // score reported is still the same clamped value that predict() returns though
-    struct Candidate { int movieId; double rankScore; double predicted;};
-    std::vector<Candidate> candidates;
-    candidates.reserve(scores.size());
+    std::vector<std::pair<int, double>> results;
+    results.reserve(scores.size());
     for (const auto& [movieId, s] : scores)
     {
         if (s.used < minNeighborsUsed || s.den < kEps) continue;
-        candidates.push_back({movieId,  (s.num + kRankShrinkage * base) / (s.den + kRankShrinkage), std::clamp(s.num / s.den, kMinRating, kMaxRating)});
+        results.emplace_back(movieId, std::clamp(s.num / s.den, kMinRating, kMaxRating));
     }
 
-    const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), candidates.size());
-    std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end(),
+    const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), results.size());
+    std::partial_sort(results.begin(), results.begin() + keep, results.end(),
                       [](const auto& a, const auto& b) {
-                          if (a.rankScore != b.rankScore) return a.rankScore > b.rankScore;
-                          return a.movieId < b.movieId;
+                          if (a.second != b.second) return a.second > b.second;
+                          return a.first < b.first;
                       });
 
-    std::vector<std::pair<int,double>> results;
-    results.reserve(keep);
-    for (size_t i = 0; i < keep; ++i) results.emplace_back(candidates[i].movieId, candidates[i].predicted);
+    results.resize(keep);
     return results;
 }
