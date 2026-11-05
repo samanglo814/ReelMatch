@@ -52,9 +52,11 @@ static void testPredictBasic() {
     Dataset d = makeDataset(mainFixture());
     UserBasedCF cf(d, 50, 3, 1, 1);
 
-    // mean(A)=4, mean(B)=3. m4: 4 + (2-3) = 3.   m5: 4 + (4-3) = 5.
-    checkNear(cf.predict(A, 4), 3.0, "predictBasic: predict(A, m4)");
-    checkNear(cf.predict(A, 5), 5.0, "predictBasic: predict(A, m5)");
+    // mean(A)=4, mean(B)=3. B's rating mapped onto A's scale, then averaged
+    // m4: B gave 2 (below its mean): 4 - (3-2) * (4-1)/(3-1) = 2.5
+    // m5: B gave 4 (above its mean): 4 + (4-3) * (5-4)/(5-3) = 4.5
+    checkNear(cf.predict(A, 4), 2.5, "predictBasic: predict(A, m4)");
+    checkNear(cf.predict(A, 5), 4.5, "predictBasic: predict(A, m5)");
 }
 
 static void testPredictFallbacks() {
@@ -111,8 +113,9 @@ static void testMinCoRated() {
     checkNear(strict.predict(A, 4), 4.0, "minCoRated: pair dropped at threshold 3 -> mean(A)");
 
     UserBasedCF loose(d, 50, 2, 1, 1);
-    // Pearson over 2 shared movies is +1. mean(B) = 8/3, so 4 + (2 - 8/3) = 10/3.
-    checkNear(loose.predict(A, 4), 10.0 / 3.0, "minCoRated: pair kept at threshold 2");
+    // Pearson over 2 shared movies is +1. mean(B) = 8/3, B gave 2 (below mean)
+    // so 4 - (8/3 - 2) * (4-1)/(8/3 - 1) = 4 - 1.2 = 2.8
+    checkNear(loose.predict(A, 4), 2.8, "minCoRated: pair kept at threshold 2");
 }
 
 static void testNeighborCountLimit() {
@@ -126,8 +129,8 @@ static void testNeighborCountLimit() {
     UserBasedCF cf(d, 1, 3, 1, 1);
 
     // Only B should count, so the answer matches the single-neighbor fixture.
-    checkNear(cf.predict(A, 4), 3.0, "neighborCountLimit: predict(A, m4)");
-    checkNear(cf.predict(A, 5), 5.0, "neighborCountLimit: predict(A, m5)");
+    checkNear(cf.predict(A, 4), 2.5, "neighborCountLimit: predict(A, m4)");
+    checkNear(cf.predict(A, 5), 4.5, "neighborCountLimit: predict(A, m5)");
 }
 
 static void testRecommend() {
@@ -138,9 +141,9 @@ static void testRecommend() {
     check(recs.size() == 2, "recommend: only m4 and m5 are unseen and rated by a neighbor");
     if (recs.size() == 2) {
         check(recs[0].first == 5, "recommend: first result is m5 (sorted descending)");
-        checkNear(recs[0].second, 5.0, "recommend: score of m5");
+        checkNear(recs[0].second, 4.5, "recommend: score of m5");
         check(recs[1].first == 4, "recommend: second result is m4");
-        checkNear(recs[1].second, 3.0, "recommend: score of m4");
+        checkNear(recs[1].second, 2.5, "recommend: score of m4");
     }
 
     for (const auto& rec : recs) {
@@ -205,6 +208,54 @@ static void testMinMovieRatings() {
     checkNear(cf.predict(A, 4), 5.0, "minMovieRatings=2: predict() unaffected");
 }
 
+// situation: a generous user (mean 4.5) with a harsh neighbor (mean 2.5) who loved a movie
+// testing mapToUserScale() so that predicted rankings are not all 5.00/5
+static void testGenerousUserNotSaturated() {
+    // A: mean 4.5 (5,4,5,4). B = A - 2 on the shared movies, plus m4 = 4 (mean(B) = (3+2+3+2+4)/5 = 2.8).
+    Dataset d = makeDataset({
+        {A, 1, 5}, {A, 2, 4}, {A, 3, 5}, {A, 5, 4},
+        {B, 1, 3}, {B, 2, 2}, {B, 3, 3}, {B, 5, 2}, {B, 4, 4},
+    });
+    UserBasedCF cf(d, 50, 3, 1, 1);
+
+    double p = cf.predict(A, 4);
+    // B's 4 is above B's mean 2.8: 4.5 + (4 - 2.8) * (5 - 4.5)/(5 - 2.8) = 4.5 + 1.2 * 0.5/2.2
+    checkNear(p, 4.5 + 1.2 * 0.5 / 2.2, "generousUser: predict(A, m4) stays below 5");
+    check(p < 5.0, "generousUser: not saturated at 5.0");
+
+    // Bounded for every possible neighbor rating 1..5.
+    for (int rating = 1; rating <= 5; ++rating) {
+        Dataset e = makeDataset({
+            {A, 1, 5}, {A, 2, 4}, {A, 3, 5}, {A, 5, 4},
+            {B, 1, 3}, {B, 2, 2}, {B, 3, 3}, {B, 5, 2}, {B, 4, static_cast<float>(rating)},
+        });
+        UserBasedCF cfe(e, 50, 3, 1, 1);
+        double q = cfe.predict(A, 4);
+        check(q >= 1.0 && q <= 5.0, "generousUser: prediction within [1, 5] for neighbor rating " + std::to_string(rating));
+    }
+}
+
+// make sure rec list is sorted in descending order
+// and is ordered by the same number it report- same from predict()
+static void testRecommendSortedByDisplayedScore() {
+    // B and E are both Pearson +1 neighbors of A, and both rate m4..m8 with different values.
+    std::vector<R> rows = {
+        {A, 1, 4}, {A, 2, 2}, {A, 3, 3},
+        {B, 1, 3}, {B, 2, 1}, {B, 3, 2}, {B, 4, 5}, {B, 5, 1}, {B, 6, 3}, {B, 7, 4}, {B, 8, 2},
+        {5, 1, 5}, {5, 2, 3}, {5, 3, 4}, {5, 4, 4}, {5, 5, 2}, {5, 6, 5}, {5, 7, 3}, {5, 8, 4},
+    };
+    Dataset d = makeDataset(rows);
+    UserBasedCF cf(d, 50, 3, 2, 2);
+
+    auto recs = cf.recommend(A, 10);
+    check(recs.size() == 5, "sorted: all five unseen two-neighbor movies are returned");
+    for (size_t i = 0; i < recs.size(); ++i) {
+        checkNear(recs[i].second, cf.predict(A, recs[i].first),
+                  "sorted: reported score equals predict() for m" + std::to_string(recs[i].first));
+        if (i > 0) check(recs[i - 1].second >= recs[i].second, "sorted: scores are non-increasing");
+    }
+}
+
 int main() {
     testPredictBasic();
     testPredictFallbacks();
@@ -216,6 +267,8 @@ int main() {
     testNeighborCountLimit();
     testMinNeighborsUsed();
     testMinMovieRatings();
+    testGenerousUserNotSaturated();
+    testRecommendSortedByDisplayedScore();
 
     if (failures == 0) {
         std::cout << "All UserBasedCF tests passed\n";
