@@ -299,7 +299,7 @@ int main() {
                     Evaluator evaluator(dataset);
 
                     // Evaluate recommendation accuracy and training time.
-                    evaluator.run(selectedUserId);
+                    evaluator.run();
 
                     // Compare training times using different dataset sizes.
                     evaluator.runScalingBenchmark();

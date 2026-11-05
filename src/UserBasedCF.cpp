@@ -29,9 +29,22 @@ namespace
             syy += y * y;
         }
     };
+
+    // map neighbor v's rating r onto target user u's scale
+    // so that predict() does not predict every movie to be 5.00/5.0
+    double mapToUserScale(double r, double meanV, double meanU)
+    {
+        if (r >= meanV)
+        {
+            const double room = kMaxRating - meanV;
+            return room < kEps ? meanU : meanU + (r - meanV) * (kMaxRating - meanU) / room;
+        }
+        const double room = meanV - kMinRating;
+        return room < kEps ? meanU : meanU - (meanV - r) * (meanU - kMinRating) / room;
+    }
 }
 
-UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated) : data(data), k(k), minCoRated(minCoRated) {
+UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated, int minMoviesRated, int minNeighborsUsed) : data(data), k(k), minCoRated(minCoRated), minMoviesRated(minMoviesRated), minNeighborsUsed(minNeighborsUsed) {
     computeUserMeans();
     computeSimilarities();
 }
@@ -55,6 +68,7 @@ void UserBasedCF::computeUserMeans() {
     }
 }
 
+// time complexity: O(Σₘ nₘ²), where nₘ is number of users who have rated movie m
 void UserBasedCF::computeSimilarities() {
     // use pearson's coefficient to calculate
     const auto& userRatings = data.getUserRatings();
@@ -117,7 +131,7 @@ void UserBasedCF::computeSimilarities() {
 
 double UserBasedCF::predict(int userId, int movieId) const {
     auto meanIt = userMean.find(userId);
-    const double base = (meanIt != userMean.end()) ? meanIt->second : kDefaultRating;
+    const double base = (meanIt != userMean.end()) ? meanIt->second : kDefaultRating; // fallback if user has no data
 
     auto nbIt = neighbors.find(userId);
     if (nbIt == neighbors.end()) return base;
@@ -125,6 +139,7 @@ double UserBasedCF::predict(int userId, int movieId) const {
     const auto& userRatings = data.getUserRatings();
 
     double num = 0, den = 0;
+    int used = 0; // how many neighbors actually rated this movie
     for (const auto& [v, sim] : nbIt->second)
     {
         auto vIt = userRatings.find(v);
@@ -132,12 +147,13 @@ double UserBasedCF::predict(int userId, int movieId) const {
         auto rIt = vIt->second.find(movieId);
         if (rIt == vIt->second.end()) continue; // neighbor didn't rate this movie
 
-        num += sim * (rIt->second - userMean.at(v));
+        num += sim * mapToUserScale(rIt->second, userMean.at(v), base);
         den += std::abs(sim);
+        ++used;
     }
 
-    if (den < kEps) return base; // no neighbor rated it: fall back to user mean
-    return std::clamp(base + num / den, kMinRating, kMaxRating);
+    if (used < minNeighborsUsed || den < kEps) return base; // no neighbor rated it or too little evidence (only one neighbor): fall back to user mean
+    return std::clamp(num / den, kMinRating, kMaxRating);
 }
 
 std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) const {
@@ -147,10 +163,12 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
 
     const auto& userRatings = data.getUserRatings();
     const auto& seen = userRatings.at(userId);
+    const double base = meanIt->second;
 
     // do one pass over neighbors, accumulating num and denom of prediction formula for every movie user hasn't rated
-    struct Score {double num = 0, den = 0;};
+    struct Score {double num = 0, den = 0; int used = 0;};
     std::unordered_map<int, Score> scores;
+    const auto& movieRatings = data.getMovieRatings();
 
     for (const auto& [v, sim] : nbIt->second)
     {
@@ -160,19 +178,25 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
         for (const auto& [movieId, r] : vIt->second)
         {
             if (seen.count(movieId)) continue;
+
+            //skip obscure movies with too few ratings
+            auto mIt = movieRatings.find(movieId);
+            if (mIt == movieRatings.end() || static_cast<int>(mIt->second.size()) < minMoviesRated) continue;
+
             Score& s = scores[movieId];
-            s.num += sim * (r - vMean);
+            s.num += sim * mapToUserScale(r, vMean, base);
             s.den += std::abs(sim);
+            ++s.used;
         }
     }
 
-    const double base = meanIt->second;
+
     std::vector<std::pair<int, double>> results;
     results.reserve(scores.size());
     for (const auto& [movieId, s] : scores)
     {
-        if (s.den < kEps) continue;
-        results.emplace_back(movieId, std::clamp(base + s.num / s.den, kMinRating, kMaxRating));
+        if (s.used < minNeighborsUsed || s.den < kEps) continue;
+        results.emplace_back(movieId, std::clamp(s.num / s.den, kMinRating, kMaxRating));
     }
 
     const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), results.size());

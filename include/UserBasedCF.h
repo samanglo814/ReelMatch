@@ -13,7 +13,7 @@
 // Select top k most similar users (neighbors) and predict missing ratings based on neighbors' ratings
 class UserBasedCF : public Recommender {
 public:
-    UserBasedCF(const Dataset& data, int k = 50, int minCoRated = 5);
+    UserBasedCF(const Dataset& data, int k = 50, int minCoRated = 5, int minMoviesRated = 20, int minNeighborsUsed = 5);
 
     double predict(int userId, int movieId) const override;
     std::vector<std::pair<int, double>> recommend(int userId, int k) const override;
@@ -23,6 +23,8 @@ private:
     const Dataset& data;
     int k;  // neighbors kept per user
     int minCoRated; // ignore pairs w fewer shared movies
+    int minMoviesRated;
+    int minNeighborsUsed;
 
     // userId -> average rating (use in similarity and prediction)
     std::unordered_map<int, double> userMean;
