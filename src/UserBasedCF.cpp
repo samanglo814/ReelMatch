@@ -30,6 +30,19 @@ namespace
             syy += y * y;
         }
     };
+
+    // map neighbor v's rating r onto target user u's scale
+    // so that predict() does not predict every movie to be 5.00/5.0
+    double mapToUserScale(double r, double meanV, double meanU)
+    {
+        if (r >= meanV)
+        {
+            const double room = kMaxRating - meanV;
+            return room < kEps ? meanU : meanU + (r - meanV) * (kMaxRating - meanU) / room;
+        }
+        const double room = meanV - kMinRating;
+        return room < kEps ? meanU : meanU - (meanV - r) * (meanU - kMinRating) / room;
+    }
 }
 
 UserBasedCF::UserBasedCF(const Dataset& data, int k, int minCoRated, int minMoviesRated, int minNeighborsUsed) : data(data), k(k), minCoRated(minCoRated), minMoviesRated(minMoviesRated), minNeighborsUsed(minNeighborsUsed) {
@@ -135,13 +148,13 @@ double UserBasedCF::predict(int userId, int movieId) const {
         auto rIt = vIt->second.find(movieId);
         if (rIt == vIt->second.end()) continue; // neighbor didn't rate this movie
 
-        num += sim * (rIt->second - userMean.at(v));
+        num += sim * mapToUserScale(rIt->second, userMean.at(v), base);
         den += std::abs(sim);
         ++used;
     }
 
     if (used < minNeighborsUsed || den < kEps) return base; // no neighbor rated it or too little evidence (only one neighbor): fall back to user mean
-    return std::clamp(base + num / den, kMinRating, kMaxRating);
+    return std::clamp(num / den, kMinRating, kMaxRating);
 }
 
 std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) const {
@@ -151,6 +164,7 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
 
     const auto& userRatings = data.getUserRatings();
     const auto& seen = userRatings.at(userId);
+    const double base = meanIt->second;
 
     // do one pass over neighbors, accumulating num and denom of prediction formula for every movie user hasn't rated
     struct Score {double num = 0, den = 0; int used = 0;};
@@ -171,13 +185,12 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
             if (mIt == movieRatings.end() || static_cast<int>(mIt->second.size()) < minMoviesRated) continue;
 
             Score& s = scores[movieId];
-            s.num += sim * (r - vMean);
+            s.num += sim * mapToUserScale(r, vMean, base);
             s.den += std::abs(sim);
             ++s.used;
         }
     }
 
-    const double base = meanIt->second;
 
     // rank by shrunk, unclamped score so movies ranked by many neighbors beat movies backed by single neighbor
     // clamping no longer creates ties full of 5.0
@@ -188,7 +201,7 @@ std::vector<std::pair<int, double>> UserBasedCF::recommend(int userId, int k) co
     for (const auto& [movieId, s] : scores)
     {
         if (s.used < minNeighborsUsed || s.den < kEps) continue;
-        candidates.push_back({movieId, base + s.num / (s.den + kRankShrinkage), std::clamp(base + s.num / s.den, kMinRating, kMaxRating)});
+        candidates.push_back({movieId,  (s.num + kRankShrinkage * base) / (s.den + kRankShrinkage), std::clamp(s.num / s.den, kMinRating, kMaxRating)});
     }
 
     const size_t keep = std::min(static_cast<size_t>(std::max(k, 0)), candidates.size());
