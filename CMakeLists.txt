@@ -29,3 +29,12 @@ add_executable(ItemBasedCFTests
 )
 target_include_directories(ItemBasedCFTests PRIVATE include)
 target_compile_options(ItemBasedCFTests PRIVATE -Wall -Wextra)
+
+add_executable(UserBasedTesting
+        tests/userBasedTests.cpp
+        src/Dataset.cpp
+        src/UserBasedCF.cpp
+)
+
+target_include_directories(UserBasedTesting PRIVATE include)
+target_compile_options(UserBasedTesting PRIVATE -Wall -Wextra)
