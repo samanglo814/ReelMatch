@@ -14,6 +14,10 @@ using namespace std;
 // 1::Toy Story (1995)::Animation|Children's|Comedy
 // MovieID::Title::Genres
 
+
+// Time Complexity: O(M + R), where M is the number of movies
+// and R is the number of ratings in the dataset.
+// Loads movie titles and ratings from the MovieLens files.
 bool Dataset::load(const std::string& folderPath) {
 
     string path = folderPath;
@@ -39,8 +43,8 @@ bool Dataset::load(const std::string& folderPath) {
     movieRatings.clear();
     totalRatings = 0;
 
-
-    // EXTRACTING movies.dat file
+    // Time Complexity: O(M), where M is the number of movies.
+    // Extracts movie IDs and titles from movies.dat.
     while (getline(moviesFile, line)) {
 
         //Gets MovieID
@@ -67,7 +71,8 @@ bool Dataset::load(const std::string& folderPath) {
     }
 
 
-    // EXTRACTING ratings.dat file
+    // Time Complexity: O(N), where N is the number of ratings.
+    // Extracts user IDs, movie IDs, and ratings from ratings.dat.
     while (getline(ratingsFile, line)) {
 
         //UserID
@@ -103,6 +108,8 @@ bool Dataset::load(const std::string& folderPath) {
 }
 
 
+// Average Time Complexity: O(1) per rating.
+// Inserts a rating into both the user and movie maps.
 void Dataset::addRating(int userId, int movieId, float rating) {
     // Outer map: user ID as its key
     // Inner map: user's movie ratings.
@@ -116,6 +123,49 @@ void Dataset::addRating(int userId, int movieId, float rating) {
 }
 
 
+// Average Time Complexity: O(1) per rating.
+// Removes a rating from both the user and movie maps.
+void Dataset::removeRating(int userId, int movieId) {
+    // Find the user's ratings
+    auto userIt = userRatings.find(userId);
+
+    if (userIt == userRatings.end()) {
+        return;
+    }
+
+    // Find the movie rating
+    auto ratingIt = userIt->second.find(movieId);
+
+    if (ratingIt == userIt->second.end()) {
+        return;
+    }
+
+    // Remove the rating from the user's map
+    userIt->second.erase(ratingIt);
+
+    // Remove the rating from the movie's map
+    auto movieIt = movieRatings.find(movieId);
+
+    if (movieIt != movieRatings.end()) {
+        movieIt->second.erase(userId);
+
+        // Remove the movie if nobody has rated it
+        if (movieIt->second.empty()) {
+            movieRatings.erase(movieIt);
+        }
+    }
+
+    // Remove the user if they have no remaining ratings
+    if (userIt->second.empty()) {
+        userRatings.erase(userIt);
+    }
+
+    totalRatings--;
+}
+
+
+// Average Time Complexity: O(1).
+// Searches for and returns a movie title using its ID.
 string Dataset::getTitle(int movieId) const {
 
     // Search for the movie ID

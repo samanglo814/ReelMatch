@@ -1,5 +1,22 @@
 #include "ItemBasedCF.h"
 
+#include <cmath>
+#include <utility>
+#include <vector>
+#include <algorithm>
+
+namespace {
+    struct PairSums {
+        double dot = 0.0;  // Sum of centered(i) * centered(j)
+        double normI = 0.0;  // Sum of centered(i)^2 
+        double normJ = 0.0;  // Sum of centered(j)^2 
+        int count = 0;  // Number of users who rated both i and j
+    };
+    long long pairKey(int i, int j) {
+        return static_cast<long long>(i) * 100000LL + j;
+    }
+}
+
 ItemBasedCF::ItemBasedCF(const Dataset& data, int k) : data(data), k(k) {
     computeUserMeans();
     computeSimilarities();
@@ -24,16 +41,139 @@ void ItemBasedCF::computeUserMeans() {
     }
 }
 
+// Adjusted cosine similarity (Sarwar et al.) between every pair of movies
+// rated by at least one common user, keeping the top k per movie.
+// Time: O(sum over users of n_u^2 + M * m log m), where n_u = ratings by
+// user u, M = number of movies, m = neighbors per movie before trimming.
 void ItemBasedCF::computeSimilarities() {
-    // TODO
+    std::unordered_map<long long, PairSums> sums;
+
+    for (const auto& [userId, ratings] : data.getUserRatings()) {
+        double mean = userMean.at(userId);
+
+        // Copy into a vector so we can visit each pair once by index.
+        std::vector<std::pair<int, float>> rated(ratings.begin(), ratings.end());
+
+        for (size_t a = 0; a < rated.size(); a++) {
+            for (size_t b = a + 1; b < rated.size(); b++) {
+                int i = rated[a].first;
+                int j = rated[b].first;
+                double ci = rated[a].second - mean;  // centered ratings
+                double cj = rated[b].second - mean;
+                if (i > j) { std::swap(i, j); std::swap(ci, cj); }
+
+                PairSums& s = sums[pairKey(i, j)];
+                s.dot += ci * cj;
+                s.normI += ci * ci;
+                s.normJ += cj * cj;
+                s.count++;
+            }
+        }
+    }
+
+    // Convert each pair's sums into a similarity and record it for both movies.
+    for (const auto& [key, s] : sums) {
+        if (s.count < 5) continue; // Ignore pairs with too few common raters
+        double denom = std::sqrt(s.normI) * std::sqrt(s.normJ);
+        if (denom == 0.0) continue;  // no variation, similarity undefined
+
+        int i = static_cast<int>(key / 100000LL);
+        int j = static_cast<int>(key % 100000LL);
+        double sim = s.dot / denom;
+
+        neighbors[i].push_back({j, sim});
+        neighbors[j].push_back({i, sim});
+    }
+
+    // Keep only the k most similar movies for each movie, highest first.
+    // Storing every pair would use far more memory and slow down predict().
+    for (auto& [movieId, list] : neighbors) {
+        std::sort(list.begin(), list.end(),
+                  [](const std::pair<int, double>& a, const std::pair<int, double>& b) {
+                      return a.second > b.second;
+                  });
+        if (list.size() > static_cast<size_t>(k)) {
+            list.resize(k);
+        }
+    }
 }
 
+// Predicts userId's rating for movieId as the user's mean plus a
+// similarity-weighted average of their deviations on movieId's most
+// similar movies. Only positive similarities are used, and at least
+// 2 matching neighbors are required; otherwise falls back to the user's mean.
+// Time: O(k), where k = neighbors stored per movie.
 double ItemBasedCF::predict(int userId, int movieId) const {
-    (void)userId; (void)movieId;  // silences unused warnings until implemented
-    return 0.0;
+    // 1. Find the user's ratings. If the user doesn't exist, return 3.0.
+    auto userIt = data.getUserRatings().find(userId);
+    if (userIt == data.getUserRatings().end()) {
+        return 3.0;
+    }
+    const auto& userRatings = userIt->second;
+
+    double mean = userMean.at(userId);
+
+    // 2. Find this movie's neighbors. If none, return the user's mean.
+    auto nIt = neighbors.find(movieId);
+    if (nIt == neighbors.end()) {
+        return mean;
+    }
+
+    // 3. Weighted sum of the user's deviations from their mean.
+    double numerator = 0.0;
+    double denominator = 0.0;
+    int used = 0;
+    for (const auto& [otherMovie, sim] : nIt->second) {
+        auto rIt = userRatings.find(otherMovie);
+        if (rIt == userRatings.end() || sim <= 0.0) continue;  // skip unrated or dissimilar
+
+        numerator += sim * (rIt->second - mean);
+        denominator += std::abs(sim);
+        used++;
+    }
+
+    // 4. Too little evidence: fall back to the user's mean.
+    if (used < 2 || denominator == 0.0) {
+        return mean;
+    }
+
+    double prediction = mean + numerator / denominator;
+
+    // 5. Keep it in the valid rating range.
+    return std::clamp(prediction, 1.0, 5.0);
 }
 
+// Returns the top k movies the user hasn't rated, ranked by predicted rating.
+// Time: O(M * k_n + M log k), where M = number of movies and
+// k_n = neighbors stored per movie (each predict() is O(k_n)).
+// Movies with fewer than 20 ratings are skipped as too unreliable.
 std::vector<std::pair<int, double>> ItemBasedCF::recommend(int userId, int k) const {
-    (void)userId; (void)k;
-    return {};
+    std::vector<std::pair<int, double>> results;
+
+    // 1. Get the user's ratings. If the user doesn't exist, return empty.
+    auto userIt = data.getUserRatings().find(userId);
+    if (userIt == data.getUserRatings().end()) {
+        return results;
+    }
+    const auto& userRatings = userIt->second;
+
+    // 2. Predict every movie the user hasn't rated.
+    for (const auto& [movieId, raters] : data.getMovieRatings()) {
+        if (raters.size() < 20) continue;  // skip unpopular movies
+        if (userRatings.find(movieId) != userRatings.end()) {
+            continue;  // user has already rated this movie
+        }
+        results.push_back({movieId, predict(userId, movieId)});
+    }
+
+    // 3. Keep only the top k, highest predicted rating first.
+    if (results.size() > static_cast<size_t>(k)) {
+        std::partial_sort(results.begin(), results.begin() + k, results.end(),
+                          [](const auto& a, const auto& b) { return a.second > b.second; });
+        results.resize(k);
+    } else {
+        std::sort(results.begin(), results.end(),
+                [](const auto& a, const auto& b) { return a.second > b.second; });
+    }
+    return results;
 }
